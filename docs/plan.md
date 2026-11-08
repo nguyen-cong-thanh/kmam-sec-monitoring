@@ -18,7 +18,7 @@
 
 ### 1.2. Phần mở rộng
 
-Nhóm chọn 2–3 mục trong danh sách sau:
+Nhóm thực hiện toàn bộ các mục sau:
 
 | Mã | Nội dung |
 |---|---|
@@ -44,13 +44,14 @@ Nhóm chọn 2–3 mục trong danh sách sau:
 ```
 
 - **Wazuh:** triển khai all-in-one hoặc Docker single-node, cần khoảng 4 vCPU và 8 GB RAM.
+- **Triển khai cụ thể:** web, Nginx và Wazuh đặt trên cùng một máy chủ; máy client đóng vai trò attacker. Chi tiết tại [deployment-plan.md](deployment-plan.md).
 - **Nhánh 1, truy cập trực tiếp:** chặn bằng iptables trên VM web.
-- **Nhánh 2, đi qua Cloudflare:** chặn bằng Cloudflare IP Access Rules API.
+- **Nhánh 2, đi qua Cloudflare:** chặn bằng Cloudflare API, thêm IP vào một Custom List được WAF custom rule của subdomain lab sử dụng.
 
 ## 3. Các điểm kỹ thuật cần xử lý
 
 1. **Mã trạng thái 401.** Phần lớn form đăng nhập trả về 200 (kèm thông báo lỗi) hoặc 302 khi đăng nhập sai. Để đếm được 401/200, nhóm dùng một trong hai cách:
-   - tự viết ứng dụng đăng nhập (Flask hoặc Node) trả 401 khi sai, 200 khi đúng;
+   - tự viết ứng dụng đăng nhập bằng Go, trả 401 khi sai, 200 khi đúng (phương án được chọn);
    - dùng `auth_basic` của Nginx.
 
    Báo cáo cần nêu đây là giới hạn của phương pháp phát hiện dựa trên mã trạng thái.
@@ -72,7 +73,7 @@ Nhóm chọn 2–3 mục trong danh sách sau:
    - Khai báo `<white_list>` cho IP quản trị.
 6. **Điều kiện để dùng Cloudflare.**
    - Một tên miền đã đưa lên Cloudflare (gói Free).
-   - Một API token có quyền ghi Firewall.
+   - Một API token có quyền Account Filter Lists Edit.
    - Cloudflare Tunnel (`cloudflared`) để đưa lab ra Internet mà không cần IP công khai.
 
 ## 4. Phân công
@@ -87,7 +88,7 @@ Nhóm chọn 2–3 mục trong danh sách sau:
 
 ## 5. Tiến độ
 
-Giả định thời gian thực hiện là 6 tuần, sẽ điều chỉnh theo hạn nộp.
+Đề tài không ràng buộc theo hạn nộp. Bảng dưới đây chỉ thể hiện thứ tự và khối lượng tương đối giữa các công việc; thứ tự triển khai chi tiết được trình bày tại [deployment-plan.md](deployment-plan.md).
 
 | Tuần | Công việc | Mốc hoàn thành |
 |---|---|---|
@@ -121,49 +122,44 @@ Giả định thời gian thực hiện là 6 tuần, sẽ điều chỉnh theo 
 
 ## 7. Đề cương báo cáo
 
-### Phần đầu
+Đề cương theo quy ước của skill `write-academic-report`:
+- chương đánh số La Mã, mục con đánh số Ả Rập;
+- tiêu đề không dùng `&`, `+` và dấu ngoặc;
+- phần tóm tắt được gộp vào Lời nói đầu.
 
-- Trang bìa, trang phụ bìa
-- Lời cam đoan
-- Lời cảm ơn
-- Mục lục
-- Danh mục các từ viết tắt
-- Danh mục bảng
-- Danh mục hình vẽ
+Mục lục, danh mục hình và danh mục bảng do công cụ build sinh tự động.
 
-### MỞ ĐẦU
+### LỜI NÓI ĐẦU
 
-1. Tính cấp thiết của đề tài
-2. Mục tiêu nghiên cứu
-3. Đối tượng và phạm vi nghiên cứu
-4. Phương pháp nghiên cứu
-5. Bố cục báo cáo
+1. Bối cảnh và tính cấp thiết của đề tài
+2. Tóm tắt công việc đã thực hiện và kết quả chính
+3. Giới thiệu nội dung từng chương
 
-### CHƯƠNG 1. TỔNG QUAN VỀ TẤN CÔNG BRUTE FORCE VÀ GIÁM SÁT AN TOÀN THÔNG TIN
+### CHƯƠNG I. TỔNG QUAN VỀ TẤN CÔNG BRUTE FORCE VÀ GIÁM SÁT AN TOÀN THÔNG TIN
 
 **1.1. Tấn công Brute Force vào chức năng đăng nhập web**
 - 1.1.1. Khái niệm và cơ chế hoạt động
-- 1.1.2. Phân loại theo MITRE ATT&CK T1110: Password Guessing, Password Spraying, Credential Stuffing
+- 1.1.2. Phân loại theo kỹ thuật T1110 của MITRE: dò mật khẩu, rải mật khẩu và nhồi thông tin đăng nhập
 - 1.1.3. Công cụ tấn công phổ biến
 - 1.1.4. Dấu hiệu nhận biết trong nhật ký HTTP
 
-**1.2. Hệ thống quản lý sự kiện và thông tin an ninh (SIEM)**
+**1.2. Hệ thống quản lý sự kiện và thông tin an ninh SIEM**
 - 1.2.1. Khái niệm và chức năng
 - 1.2.2. Kiến trúc và thành phần của Wazuh
 - 1.2.3. Cơ chế decoder, rule và tương quan sự kiện
 - 1.2.4. Cơ chế Active Response
 
 **1.3. Các thành phần hỗ trợ giám sát và ngăn chặn**
-- 1.3.1. Reverse proxy Nginx/HAProxy và định dạng access log
+- 1.3.1. Reverse proxy Nginx và định dạng access log
 - 1.3.2. Tường lửa iptables
-- 1.3.3. Cloudflare và cơ chế IP Access Rules
+- 1.3.3. Cloudflare, Custom List và WAF custom rule
 
 **1.4. Các nghiên cứu và giải pháp liên quan**
 - Fail2ban, rate limiting tại proxy, WAF
 
 **1.5. Kết luận chương 1**
 
-### CHƯƠNG 2. PHÂN TÍCH VÀ THIẾT KẾ GIẢI PHÁP
+### CHƯƠNG II. PHÂN TÍCH VÀ THIẾT KẾ GIẢI PHÁP
 
 **2.1. Phân tích yêu cầu**
 - 2.1.1. Yêu cầu chức năng
@@ -178,10 +174,10 @@ Giả định thời gian thực hiện là 6 tuần, sẽ điều chỉnh theo 
 - 2.3.2. Cấu hình Wazuh agent
 
 **2.4. Thiết kế luật phát hiện**
-- 2.4.1. Luật phát hiện đăng nhập thất bại (HTTP 401)
+- 2.4.1. Luật phát hiện đăng nhập thất bại với mã HTTP 401
 - 2.4.2. Luật tương quan theo tần suất và IP nguồn
-- 2.4.3. Luật phát hiện đăng nhập thành công sau chuỗi thất bại (401 → 200)
-- 2.4.4. Luật phát hiện tấn công phân tán theo tài khoản *(mở rộng)*
+- 2.4.3. Luật phát hiện đăng nhập thành công sau chuỗi thất bại
+- 2.4.4. Luật phát hiện tấn công phân tán theo tài khoản
 
 **2.5. Thiết kế cơ chế phản ứng tự động**
 - 2.5.1. Chặn IP bằng iptables
@@ -190,7 +186,7 @@ Giả định thời gian thực hiện là 6 tuần, sẽ điều chỉnh theo 
 
 **2.6. Kết luận chương 2**
 
-### CHƯƠNG 3. TRIỂN KHAI THỰC NGHIỆM VÀ ĐÁNH GIÁ
+### CHƯƠNG III. TRIỂN KHAI THỰC NGHIỆM VÀ ĐÁNH GIÁ
 
 **3.1. Môi trường thực nghiệm**
 - 3.1.1. Mô hình mạng và cấu hình máy
@@ -206,7 +202,7 @@ Giả định thời gian thực hiện là 6 tuần, sẽ điều chỉnh theo 
 - 3.3.2. Brute force qua Cloudflare
 - 3.3.3. Brute force thành công
 - 3.3.4. Tấn công tốc độ thấp
-- 3.3.5. Tấn công phân tán *(mở rộng)*
+- 3.3.5. Tấn công phân tán
 - 3.3.6. Người dùng hợp lệ nhập sai mật khẩu
 
 **3.4. Kết quả và đánh giá**
@@ -228,7 +224,7 @@ Giả định thời gian thực hiện là 6 tuần, sẽ điều chỉnh theo 
 
 - **Tài liệu tham khảo:** trình bày theo chuẩn IEEE hoặc APA, tùy quy định của khoa.
 - **Phụ lục:**
-  - A. Cấu hình Nginx/HAProxy
+  - A. Cấu hình Nginx
   - B. Decoder và rule Wazuh
   - C. Script Active Response
   - D. Script tấn công thử nghiệm
@@ -237,7 +233,7 @@ Giả định thời gian thực hiện là 6 tuần, sẽ điều chỉnh theo 
 
 | Thành viên | Phần phụ trách |
 |---|---|
-| TV1 | Mở đầu, Kết luận, tổng hợp và định dạng |
+| TV1 | Lời nói đầu, Kết luận, tổng hợp và định dạng |
 | TV2 | 1.3, 2.2, 2.3, 3.1, 3.2.1 |
 | TV3 | 1.2, 2.4, 3.2.2 |
 | TV4 | 1.4, 2.5, 3.2.3 |
@@ -246,17 +242,26 @@ Giả định thời gian thực hiện là 6 tuần, sẽ điều chỉnh theo 
 ## 8. Cấu trúc repo
 
 ```
-infra/            # hướng dẫn dựng VM hoặc docker-compose, cấu hình nginx/haproxy
-wazuh/            # local_decoder.xml, local_rules.xml, đoạn ossec.conf
-active-response/  # script Cloudflare
-attack/           # script tấn công, kịch bản kiểm thử
-docs/             # kế hoạch, báo cáo, sơ đồ, số liệu
+infra/               # docker-compose, cấu hình nginx, ứng dụng đăng nhập, Wazuh manager
+wazuh/               # local_decoder.xml, local_rules.xml, đoạn ossec.conf, integration
+active-response/     # script Cloudflare
+attack/              # script tấn công, tính chỉ số
+experiments/results/ # số liệu thô của thực nghiệm
+docs/                # kế hoạch, nhật ký triển khai (docs/notes/), báo cáo
 ```
 
-## 9. Các vấn đề cần chốt
+Chi tiết tại [deployment-plan.md](deployment-plan.md) mục 3.
 
-1. Hạn nộp; tiến độ ở mục 5 đang giả định 6 tuần.
-2. Tên miền trên Cloudflare; nếu không có, phần chặn qua Cloudflare chỉ dừng ở mức thiết kế.
-3. Lựa chọn Nginx, HAProxy hoặc kết hợp cả hai (HAProxy làm load balancer phía trước Nginx).
-4. Nơi chạy lab: máy cá nhân (khoảng 16 GB RAM cho 3 VM) hoặc VPS/cloud.
-5. Mẫu trình bày báo cáo của khoa (cỡ chữ, lề, cách đánh số).
+## 9. Các quyết định đã chốt và vấn đề còn mở
+
+Đã chốt:
+
+1. Không ràng buộc theo hạn nộp; làm đầy đủ phần bắt buộc và E1–E5.
+2. Tên miền `nguyencongthanh.io.vn` trên Cloudflare; lab chỉ dùng subdomain `lab.nguyencongthanh.io.vn`. Thực nghiệm cả hai nhánh iptables và Cloudflare.
+3. Reverse proxy là Nginx.
+4. Máy client chạy công cụ tấn công; một máy chủ riêng chạy web và Wazuh; hai máy dùng chung repo git.
+
+Còn mở:
+
+1. Thông tin máy chủ và các vấn đề triển khai khác: xem [deployment-plan.md](deployment-plan.md) mục 6.
+2. Báo cáo trình bày theo skill `write-academic-report` và build ra .docx bằng skill `build-academic-report`.
