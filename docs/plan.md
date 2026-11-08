@@ -241,16 +241,17 @@ Mục lục, danh mục hình và danh mục bảng do công cụ build sinh t�
 
 ## 8. Cấu trúc repo
 
+Dự án gồm hai repo tách biệt. Repo phòng thủ (repo hiện tại):
+
 ```
 infra/               # docker-compose, cấu hình nginx, ứng dụng đăng nhập, Wazuh manager
 wazuh/               # local_decoder.xml, local_rules.xml, đoạn ossec.conf, integration
 active-response/     # script Cloudflare
-attack/              # script tấn công, tính chỉ số
-experiments/results/ # số liệu thô của thực nghiệm
+experiments/         # metrics.py và số liệu thô của thực nghiệm
 docs/                # kế hoạch, nhật ký triển khai (docs/notes/), báo cáo
 ```
 
-Chi tiết tại [deployment-plan.md](deployment-plan.md) mục 3.
+Công cụ sinh tải tấn công đặt ở một repo độc lập, tách khỏi repo phòng thủ. Lý do và luồng dữ liệu giữa hai repo trình bày tại [deployment-plan.md](deployment-plan.md) mục 2 và 3.
 
 ## 9. Các quyết định đã chốt và vấn đề còn mở
 

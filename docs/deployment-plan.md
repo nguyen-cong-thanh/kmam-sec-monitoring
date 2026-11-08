@@ -46,8 +46,11 @@ Các lựa chọn thiết kế:
 2. **Wazuh agent cài trực tiếp trên host, không chạy trong container.** `firewall-drop` phải thay đổi iptables của host. Nếu agent chạy trong container, lệnh chặn chỉ có tác dụng trong network namespace của container đó.
 3. **Ứng dụng đăng nhập tự viết bằng Go.** Ứng dụng chỉ dùng thư viện chuẩn (`net/http`, `log/slog`) và được build thành một binary trong image Docker nhiều giai đoạn, nên máy chủ không cần cài Go. Ứng dụng trả về 401 khi đăng nhập sai và 200 khi đúng. Ngoài ra, ứng dụng ghi sự kiện đăng nhập dạng JSON (username, IP) ra `auth.json`, phục vụ phát hiện tấn công phân tán theo tài khoản (E2), vì access log của Nginx không chứa username.
 4. **Bí mật không đưa vào repo.** API token Cloudflare và mật khẩu Wazuh để trong `.env` (khai báo trong `.gitignore`). Repo chỉ chứa `.env.example`.
+5. **Tách phòng thủ và tấn công thành hai repo riêng.** Công cụ sinh tải tấn công đặt ở một repo độc lập, không nằm trong repo phòng thủ. Nhờ đó, phiên làm việc xây dựng phần phòng thủ không nạp nội dung tấn công và giữ nguyên năng lực mô hình. Hai repo trao đổi dữ liệu một chiều: repo tấn công sinh ra `attack.csv`, người thực hiện chép vào `experiments/results/` của repo phòng thủ để phân tích. Việc phân tích (`metrics.py`) thuộc repo phòng thủ, vì chỉ đọc số liệu, không sinh tải.
 
-## 3. Cấu trúc repo dự kiến
+## 3. Cấu trúc hai repo
+
+### Repo phòng thủ (`kmam-sec-monitoring`, repo hiện tại)
 
 ```
 infra/
@@ -65,14 +68,17 @@ wazuh/
 active-response/
   cloudflare-ban.py
   test_cloudflare_ban.py
-attack/
-  bruteforce.py             # sinh tải có kiểm soát, ghi CSV từng request
-  metrics.py                # tính chỉ số từ CSV và alerts
-experiments/results/        # số liệu thô theo kịch bản và lần chạy
+experiments/
+  metrics.py                # tính chỉ số từ attack.csv và alerts
+  results/                  # số liệu thô theo kịch bản và lần chạy
 docs/
   plan.md, deployment-plan.md
   notes/                    # nhật ký triển khai (mục 5)
 ```
+
+### Repo tấn công (độc lập)
+
+Cấu trúc repo này được mô tả trong tài liệu riêng của nó. Repo phòng thủ chỉ nhận đầu ra `attack.csv` từ nó; mọi chi tiết về công cụ sinh tải nằm ngoài phạm vi repo phòng thủ.
 
 ## 4. Các giai đoạn triển khai
 
@@ -186,11 +192,9 @@ Trong `wazuh/rules/local_rules.xml`, ID từ 100100:
 
 ### Giai đoạn 7. Thực nghiệm và thu số liệu
 
-- **`attack/bruteforce.py`:**
-  - nhận tham số: kịch bản, URL, tốc độ request, danh sách mật khẩu;
-  - ghi CSV từng request gồm thời điểm, mã trạng thái, độ trễ, lỗi kết nối.
-  - Hydra được dùng song song để minh họa công cụ thực tế; số liệu định lượng lấy từ `bruteforce.py`.
-- **Nguồn IP:** `bruteforce.py` nhận thêm danh sách địa chỉ nguồn để gắn cho từng kết nối. Kịch bản S5 dùng phương án giả lập nhiều IP ở V3 (mục 6).
+- **Công cụ sinh tải:** thuộc repo tấn công độc lập (mục 2, lựa chọn 5). Công cụ nhận tham số kịch bản, URL, tốc độ request, danh sách mật khẩu, và ghi `attack.csv` từng request gồm thời điểm, mã trạng thái, độ trễ, lỗi kết nối. Hydra dùng song song để minh họa công cụ thực tế; số liệu định lượng lấy từ `attack.csv`.
+- **Nguồn IP:** kịch bản S5 dùng phương án nhiều IP ở V3 (mục 6).
+- **Luồng dữ liệu:** sau mỗi lần chạy, chép `attack.csv` từ repo tấn công vào `experiments/results/` của repo này để phân tích.
 - **Kịch bản:** S1–S6 theo [plan.md](plan.md) mục 6. Mỗi kịch bản chạy 5 lần. Kịch bản S1 chạy thêm với các ngưỡng 5, 10 và 20 lần trong 60 giây.
 - **Kết quả mỗi lần chạy:** lưu tại `experiments/results/<kich-ban>/<thoi-diem>/`, gồm:
   - `attack.csv`;
@@ -198,7 +202,7 @@ Trong `wazuh/rules/local_rules.xml`, ID từ 100100:
   - đoạn trích `active-responses.log`;
   - `config.txt` (commit hash, ngưỡng, timeout);
   - `metrics.json`.
-- **`attack/metrics.py`:** tính thời gian đến cảnh báo, thời gian đến khi bị chặn và số request lọt qua, chỉ từ các file thô trên. Báo cáo không dùng số liệu nào không có file nguồn.
+- **`experiments/metrics.py`:** tính thời gian đến cảnh báo, thời gian đến khi bị chặn và số request lọt qua, chỉ từ các file thô trên. Báo cáo không dùng số liệu nào không có file nguồn.
 - **Ghi chú:** `docs/notes/07-thuc-nghiem.md`, phục vụ mục 3.3 và 3.4.
 
 ### Giai đoạn 8. Viết báo cáo
@@ -266,12 +270,6 @@ Viết từng mục theo đề cương, lấy nội dung từ `docs/notes/` và 
 
 Còn mở:
 
-- **V3. Giả lập nhiều IP nguồn cho kịch bản S5.** Phương án đề xuất, chờ nhóm xác nhận:
-
-| Phạm vi | Phương pháp | Tính chất |
-|---|---|---|
-| Nhánh direct | Gán thêm nhiều IP phụ (IP alias) cho card mạng của client, chọn ngoài dải DHCP của router. `bruteforce.py` gắn địa chỉ nguồn cho từng kết nối (`source_address`) | Gói tin thật đi qua LAN; Wazuh phát hiện và iptables chặn theo từng IP. Cần kiểm tra router/Wi-Fi có chấp nhận nhiều IP trên cùng một địa chỉ MAC không |
-| Nhánh cf | Thêm 1–2 IP công khai thật (mạng di động, VPN) | Số IP ít, chỉ có tính minh họa |
-| Chỉ đánh giá phát hiện | Phát lại log tổng hợp với hàng trăm IP qua `wazuh-logtest` hoặc ghi thẳng vào file log | Không đánh giá được khả năng chặn |
-
-Giả mạo header `X-Forwarded-For` hoặc `CF-Connecting-IP` không phải là cách giả lập hợp lệ. Nginx chỉ tin `CF-Connecting-IP` khi kết nối đến từ subnet của `cloudflared`. Có thể bổ sung một kịch bản thử né tránh phát hiện bằng cách giả mạo các header này, để kiểm chứng cấu hình real IP.
+- **V3. Nguồn nhiều IP cho kịch bản S5.** Tạm giả định nhóm có 3 máy với 3 IP công khai khác nhau; phương án cụ thể trao đổi sau. Các hướng đã cân nhắc: điện thoại nhiều nhà mạng, nhiều laptop, IP phụ trên LAN cho nhánh direct, và phát lại log tổng hợp để đánh giá riêng phần phát hiện.
+  - Lưu ý khi chốt: CGNAT và IPv6 của mạng di động làm IP thay đổi giữa các lần chạy, nên mỗi lần chạy phải ghi lại IP thực tế xuất hiện trong `access-cf.log`.
+  - Giả mạo header `X-Forwarded-For` hoặc `CF-Connecting-IP` không phải cách giả lập hợp lệ; Nginx chỉ tin `CF-Connecting-IP` khi kết nối đến từ subnet của `cloudflared`. Có thể dùng việc giả mạo này làm một kịch bản kiểm chứng cấu hình real IP.
