@@ -258,7 +258,7 @@ Công cụ sinh tải tấn công đặt ở một repo độc lập, tách kh�
 Đã chốt:
 
 1. Không ràng buộc theo hạn nộp; làm đầy đủ phần bắt buộc và E1–E5.
-2. Tên miền `nguyencongthanh.io.vn` trên Cloudflare; lab chỉ dùng subdomain `lab.nguyencongthanh.io.vn`. Thực nghiệm cả hai nhánh iptables và Cloudflare.
+2. Tên miền `nguyencongthanh.io.vn` trên Cloudflare; lab chỉ dùng subdomain `monitor-lab.nguyencongthanh.io.vn`. Thực nghiệm cả hai nhánh iptables và Cloudflare.
 3. Reverse proxy là Nginx.
 4. Máy client chạy công cụ tấn công; một máy chủ riêng chạy web và Wazuh; hai máy dùng chung repo git.
 

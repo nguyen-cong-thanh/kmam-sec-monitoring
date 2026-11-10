@@ -12,7 +12,7 @@ Tài liệu này chi tiết hóa phần triển khai của [plan.md](plan.md): t
 | Ràng buộc | Máy chủ đang chạy container của các dự án khác (các port 1883, 3080, 8080, 8883, 32768); được phép dừng các container này khi cần tài nguyên hoặc port. Port 80 và 443 còn trống; ufw đang bật |
 | Đồng bộ mã | Hai máy dùng chung repo git; server cập nhật bằng `git pull` |
 | Reverse proxy | Nginx |
-| Cloudflare | Zone `nguyencongthanh.io.vn`; lab chỉ dùng subdomain `lab.nguyencongthanh.io.vn`, vì zone còn phục vụ các dịch vụ khác |
+| Cloudflare | Zone `nguyencongthanh.io.vn`; lab chỉ dùng subdomain `monitor-lab.nguyencongthanh.io.vn`, vì zone còn phục vụ các dịch vụ khác |
 | Phạm vi | Làm đầy đủ phần bắt buộc và các phần mở rộng E1–E5; không ràng buộc theo hạn nộp |
 
 ## 2. Kiến trúc triển khai
@@ -39,12 +39,12 @@ Các lựa chọn thiết kế:
 
 1. **Tách hai nhánh bằng hai port và hai file log.**
    - Port 80 publish ra LAN, phục vụ nhánh direct.
-   - Port 8081 không publish; chỉ container `cloudflared` trong cùng mạng Docker gọi tới, phục vụ nhánh cf.
+   - Port 8081 chỉ publish trên `127.0.0.1`; `cloudflared` chạy như service trên host (quản lý riêng, ngoài repo) gọi tới, phục vụ nhánh cf.
    - Máy chủ nằm sau NAT, không có port forwarding, nên nhánh Cloudflare dùng Cloudflare Tunnel.
 
    Mỗi rule tương quan gắn với một file log qua thẻ `<location>`. Nhờ đó Active Response của nhánh nào chỉ chạy cho nhánh đó, và số liệu hai nhánh không lẫn vào nhau.
 2. **Wazuh agent cài trực tiếp trên host, không chạy trong container.** `firewall-drop` phải thay đổi iptables của host. Nếu agent chạy trong container, lệnh chặn chỉ có tác dụng trong network namespace của container đó.
-3. **Ứng dụng đăng nhập tự viết bằng Go.** Ứng dụng chỉ dùng thư viện chuẩn (`net/http`, `log/slog`) và được build thành một binary trong image Docker nhiều giai đoạn, nên máy chủ không cần cài Go. Ứng dụng trả về 401 khi đăng nhập sai và 200 khi đúng. Ngoài ra, ứng dụng ghi sự kiện đăng nhập dạng JSON (username, IP) ra `auth.json`, phục vụ phát hiện tấn công phân tán theo tài khoản (E2), vì access log của Nginx không chứa username.
+3. **Ứng dụng đăng nhập tự viết bằng Go.** Ứng dụng chỉ dùng thư viện chuẩn (`net/http`, `log/slog`) và được build thành một binary trong image Docker nhiều giai đoạn, nên máy chủ không cần cài Go. Ứng dụng trả về 401 khi đăng nhập sai và 200 khi đúng. Ngoài ra, ứng dụng ghi sự kiện đăng nhập dạng JSON (`msg` là `login_failed` hoặc `login_success`, `user`, `srcip`) ra `auth.json`, phục vụ phát hiện tấn công phân tán theo tài khoản (E2), vì access log của Nginx không chứa username.
 4. **Bí mật không đưa vào repo.** API token Cloudflare và mật khẩu Wazuh để trong `.env` (khai báo trong `.gitignore`). Repo chỉ chứa `.env.example`.
 5. **Tách phòng thủ và tấn công thành hai repo riêng.** Công cụ sinh tải tấn công đặt ở một repo độc lập, không nằm trong repo phòng thủ. Nhờ đó, phiên làm việc xây dựng phần phòng thủ không nạp nội dung tấn công và giữ nguyên năng lực mô hình. Hai repo trao đổi dữ liệu một chiều: repo tấn công sinh ra `attack.csv`, người thực hiện chép vào `experiments/results/` của repo phòng thủ để phân tích. Việc phân tích (`metrics.py`) thuộc repo phòng thủ, vì chỉ đọc số liệu, không sinh tải.
 
@@ -105,12 +105,12 @@ Mỗi giai đoạn chỉ kết thúc khi phần kiểm tra đạt và file ghi c
 - **`infra/nginx/nginx.conf`:**
   - dùng log format `combined` để tận dụng decoder `web-accesslog` có sẵn;
   - vhost `direct` ghi `access-direct.log`;
-  - vhost `cf` (port 8081) ghi `access-cf.log`, cấu hình `real_ip_header CF-Connecting-IP`. `set_real_ip_from` trỏ tới subnet cố định của mạng Docker nơi `cloudflared` chạy. Vì lưu lượng đi qua tunnel nên kết nối tới Nginx xuất phát từ container `cloudflared`, không phải từ dải IP của Cloudflare.
-- **`infra/docker-compose.yml`:** chạy nginx, app và cloudflared.
-  - Bind-mount thư mục log ra `/var/log/kmam/` trên host.
-  - Khai báo subnet cố định cho mạng nội bộ.
-  - Chỉ publish port 80.
-- **Cloudflare:** tạo một tunnel riêng cho lab, không dùng chung với tunnel có sẵn trên máy chủ. Gắn hostname `lab.nguyencongthanh.io.vn` vào `http://nginx:8081`. Token của tunnel lưu trong `.env`.
+  - vhost `cf` (port 8081) ghi `access-cf.log`, cấu hình `real_ip_header CF-Connecting-IP`. `set_real_ip_from` trỏ tới gateway `172.31.0.1` của mạng Docker. Vì lưu lượng đi qua tunnel và `cloudflared` chạy trên host, kết nối tới Nginx xuất phát từ gateway này, không phải từ dải IP của Cloudflare.
+- **`infra/docker-compose.yml`:** chạy nginx và app.
+  - Bind-mount thư mục log ra `/var/log/kmam/` trên host: `nginx/` chứa hai access log, `app/` chứa `auth.json` (thư mục `app/` thuộc uid 65532, là user chạy ứng dụng trong container).
+  - Khai báo subnet cố định `172.31.0.0/24` cho mạng nội bộ (không trùng các mạng Docker có sẵn trên máy chủ).
+  - Publish port 80 ra LAN và port 8081 chỉ trên `127.0.0.1`.
+- **Cloudflare:** `cloudflared` trên host được người thực hiện cấu hình riêng, ngoài repo. Hostname `monitor-lab.nguyencongthanh.io.vn` trỏ tới `http://localhost:8081`.
 - **Kiểm tra:**
   - `curl` với mật khẩu sai trả 401, mật khẩu đúng trả 200, qua cả hai nhánh;
   - trường IP trong log là IP thật của client, không phải IP gateway của Docker hay IP của Cloudflare.
@@ -164,7 +164,7 @@ Trong `wazuh/rules/local_rules.xml`, ID từ 100100:
 
 ### Giai đoạn 5. Active Response bằng Cloudflare API
 
-- **Cơ chế chặn:** dùng Custom List `kmam_banned` và một WAF custom rule. Rule có biểu thức `http.host eq "lab.nguyencongthanh.io.vn" and ip.src in $kmam_banned` và hành động Block. Rule được tạo một lần khi cấu hình; Active Response chỉ thay đổi nội dung list. Nhờ đó các subdomain khác của zone không bị ảnh hưởng.
+- **Cơ chế chặn:** dùng Custom List `kmam_banned` và một WAF custom rule. Rule có biểu thức `http.host eq "monitor-lab.nguyencongthanh.io.vn" and ip.src in $kmam_banned` và hành động Block. Rule được tạo một lần khi cấu hình; Active Response chỉ thay đổi nội dung list. Nhờ đó các subdomain khác của zone không bị ảnh hưởng.
 - **API token:** quyền Account / Account Filter Lists / Edit. Token lưu trên host (đọc từ file trong `/var/ossec/etc/`), không đưa vào repo.
 - **Hạn mức:** cần xác minh hạn mức số list và số phần tử của gói Free trước khi triển khai.
 - **`active-response/cloudflare-ban.py`:**
@@ -178,7 +178,7 @@ Trong `wazuh/rules/local_rules.xml`, ID từ 100100:
 - **Kiểm tra:**
   - `test_cloudflare_ban.py` kiểm tra phần phân tích thông điệp và tạo request khi gọi API giả lập;
   - kiểm tra thủ công bằng `echo '<json>' | cloudflare-ban.py`;
-  - chạy đầy đủ một vòng: client qua `lab.nguyencongthanh.io.vn` nhận phản hồi chặn từ Cloudflare, IP xuất hiện trong list trên dashboard, IP tự được xóa khỏi list sau timeout;
+  - chạy đầy đủ một vòng: client qua `monitor-lab.nguyencongthanh.io.vn` nhận phản hồi chặn từ Cloudflare, IP xuất hiện trong list trên dashboard, IP tự được xóa khỏi list sau timeout;
   - đo độ trễ từ lúc gọi API đến lúc lệnh chặn có hiệu lực.
 - **Ghi chú:** `docs/notes/05-ar-cloudflare.md`, phục vụ mục 2.5.2 và 3.2.3.
 
@@ -266,10 +266,10 @@ Viết từng mục theo đề cương, lấy nội dung từ `docs/notes/` và 
 - **V1. IP quản trị trùng với IP tấn công.** Quản trị qua Tailscale; tấn công qua LAN (nhánh 1) và Internet (nhánh 2).
 - **V2. Thông tin máy chủ.** Đã ghi ở mục 1.
 - **V4. Phạm vi chặn trên Cloudflare.** Dùng Custom List kết hợp một WAF custom rule giới hạn theo hostname của lab, vì tên miền còn phục vụ các dịch vụ khác. Không dùng IP Access Rule cấp zone.
-- **V5. Tên miền.** Lab dùng `lab.nguyencongthanh.io.vn`, không thay đổi các bản ghi khác của zone.
+- **V5. Tên miền.** Lab dùng `monitor-lab.nguyencongthanh.io.vn`, không thay đổi các bản ghi khác của zone.
 
 Còn mở:
 
 - **V3. Nguồn nhiều IP cho kịch bản S5.** Tạm giả định nhóm có 3 máy với 3 IP công khai khác nhau; phương án cụ thể trao đổi sau. Các hướng đã cân nhắc: điện thoại nhiều nhà mạng, nhiều laptop, IP phụ trên LAN cho nhánh direct, và phát lại log tổng hợp để đánh giá riêng phần phát hiện.
   - Lưu ý khi chốt: CGNAT và IPv6 của mạng di động làm IP thay đổi giữa các lần chạy, nên mỗi lần chạy phải ghi lại IP thực tế xuất hiện trong `access-cf.log`.
-  - Giả mạo header `X-Forwarded-For` hoặc `CF-Connecting-IP` không phải cách giả lập hợp lệ; Nginx chỉ tin `CF-Connecting-IP` khi kết nối đến từ subnet của `cloudflared`. Có thể dùng việc giả mạo này làm một kịch bản kiểm chứng cấu hình real IP.
+  - Giả mạo header `X-Forwarded-For` hoặc `CF-Connecting-IP` không phải cách giả lập hợp lệ; Nginx chỉ tin `CF-Connecting-IP` khi kết nối đến từ gateway của mạng Docker, nơi lưu lượng của `cloudflared` đi vào. Có thể dùng việc giả mạo này làm một kịch bản kiểm chứng cấu hình real IP.
