@@ -8,12 +8,17 @@ cd "$(dirname "$0")"
 . ./.env
 
 hash() {
-    docker run --rm --entrypoint bash wazuh/wazuh-indexer:4.14.10 \
-        /usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh -p "$1" | tail -n 1
+    h=$(docker run --rm --entrypoint bash -e JAVA_HOME=/usr/share/wazuh-indexer/jdk \
+        wazuh/wazuh-indexer:4.14.10 \
+        /usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh -p "$1" 2>/dev/null | tail -n 1)
+    case "$h" in
+        '$2y$'*) printf '%s' "$h" ;;
+        *) echo "hash.sh failed: $h" >&2; exit 1 ;;
+    esac
 }
 
 admin=$(hash "$INDEXER_PASSWORD")
 kibana=$(hash "$DASHBOARD_PASSWORD")
 sed -e "s|__ADMIN_HASH__|$admin|" -e "s|__KIBANASERVER_HASH__|$kibana|" \
     config/wazuh_indexer/internal_users.yml.template > config/wazuh_indexer/internal_users.yml
-grep -c '\$2y\$' config/wazuh_indexer/internal_users.yml
+echo "wrote config/wazuh_indexer/internal_users.yml"
