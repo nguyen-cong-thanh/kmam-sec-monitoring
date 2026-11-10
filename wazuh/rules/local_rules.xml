@@ -1,0 +1,118 @@
+<!--
+  Brute-force detection rules for the lab (IDs 100100-100199).
+  Mounted into the manager at /var/ossec/etc/rules/ (replaces the default local_rules.xml).
+
+  Branches are told apart by the log file (<location>):
+    direct: /var/log/kmam/nginx/access-direct.log   -> 100100-100109
+    cf:     /var/log/kmam/nginx/access-cf.log       -> 100110-100119
+    app:    /var/log/kmam/app/auth.json             -> 100120-100129
+  Thresholds are experiment parameters: change them in a separate commit
+  and record that commit hash with the run results.
+-->
+
+<group name="kmam,web,">
+
+  <!-- Single failed login (401 on /login). Parent 31101 = stock "Web server 400 error code". -->
+  <rule id="100100" level="5">
+    <if_sid>31101</if_sid>
+    <location>access-direct.log</location>
+    <id>^401$</id>
+    <url>^/login</url>
+    <description>kmam direct: failed login (401 on /login) from $(srcip).</description>
+    <group>kmam_login_failed,</group>
+  </rule>
+
+  <rule id="100110" level="5">
+    <if_sid>31101</if_sid>
+    <location>access-cf.log</location>
+    <id>^401$</id>
+    <url>^/login</url>
+    <description>kmam cf: failed login (401 on /login) from $(srcip).</description>
+    <group>kmam_login_failed,</group>
+  </rule>
+
+  <!-- Brute force: 10 failed logins within 60 s from the same source IP. -->
+  <rule id="100101" level="10" frequency="10" timeframe="60">
+    <if_matched_sid>100100</if_matched_sid>
+    <same_srcip />
+    <description>kmam direct: brute force on /login, 10 failures in 60 s from $(srcip).</description>
+    <mitre>
+      <id>T1110.001</id>
+    </mitre>
+    <group>kmam_bruteforce,</group>
+  </rule>
+
+  <rule id="100111" level="10" frequency="10" timeframe="60">
+    <if_matched_sid>100110</if_matched_sid>
+    <same_srcip />
+    <description>kmam cf: brute force on /login, 10 failures in 60 s from $(srcip).</description>
+    <mitre>
+      <id>T1110.001</id>
+    </mitre>
+    <group>kmam_bruteforce,</group>
+  </rule>
+
+  <!-- Successful login (200 on /login). Level 0: no alert by itself, used by 100105.
+       Parent 31108 as well: the stock rule claims 2xx/3xx "simple" requests, which
+       includes POST /login, before children of 31100 are evaluated. -->
+  <rule id="100102" level="0">
+    <if_sid>31100, 31108</if_sid>
+    <location>access-direct.log</location>
+    <id>^200$</id>
+    <url>^/login</url>
+    <description>kmam direct: successful login (200 on /login) from $(srcip).</description>
+    <group>kmam_login_success,</group>
+  </rule>
+
+  <rule id="100112" level="0">
+    <if_sid>31100, 31108</if_sid>
+    <location>access-cf.log</location>
+    <id>^200$</id>
+    <url>^/login</url>
+    <description>kmam cf: successful login (200 on /login) from $(srcip).</description>
+    <group>kmam_login_success,</group>
+  </rule>
+
+  <!-- E1: successful login from an IP that triggered a brute-force alert in the
+       last 600 s (same window as the Active Response timeout). -->
+  <rule id="100105" level="13" timeframe="600">
+    <if_group>kmam_login_success</if_group>
+    <if_matched_group>kmam_bruteforce</if_matched_group>
+    <same_srcip />
+    <description>kmam: successful login on /login from $(srcip) after a brute-force alert.</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+    <group>kmam_compromise,</group>
+  </rule>
+
+</group>
+
+<group name="kmam,authentication,">
+
+  <!-- Login events from the Go app (auth.json, decoded by the stock json decoder;
+       the "user" key is mapped to the static field dstuser). -->
+  <rule id="100120" level="3">
+    <decoded_as>json</decoded_as>
+    <location>auth.json</location>
+    <field name="msg">^login_failed$</field>
+    <description>kmam app: failed login for user $(dstuser) from $(srcip).</description>
+    <group>kmam_app_login_failed,</group>
+  </rule>
+
+  <!-- E2: failed logins for the same user from different source IPs.
+       Wazuh has no distinct-count operator: different_srcip requires each of the
+       previous matched events to have a source IP different from the current one,
+       not that all IPs are pairwise distinct. -->
+  <rule id="100121" level="10" frequency="6" timeframe="300">
+    <if_matched_sid>100120</if_matched_sid>
+    <same_user />
+    <different_srcip />
+    <description>kmam app: failed logins for user $(dstuser) from multiple source IPs (6 in 300 s).</description>
+    <mitre>
+      <id>T1110.003</id>
+    </mitre>
+    <group>kmam_distributed,</group>
+  </rule>
+
+</group>

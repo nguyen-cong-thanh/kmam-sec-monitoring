@@ -137,17 +137,19 @@ Mỗi giai đoạn chỉ kết thúc khi phần kiểm tra đạt và file ghi c
 
 ### Giai đoạn 3. Decoder và rule phát hiện
 
-Trong `wazuh/rules/local_rules.xml`, ID từ 100100:
+Trong `wazuh/rules/local_rules.xml`, ID từ 100100. Thư mục `wazuh/rules` được mount read-only vào `/var/ossec/etc/rules` của manager. Không cần decoder riêng: access log dùng decoder `web-accesslog`, `auth.json` dùng decoder `json` có sẵn. Hai nhánh được phân biệt bằng `<location>` (tên file log).
 
 | ID | Nội dung | Level | MITRE |
 |---|---|---|---|
-| 100100 / 100110 | Một request `/login` trả 401 (nhánh direct / cf) | 5 | – |
+| 100100 / 100110 | Một request `/login` trả 401 (nhánh direct / cf); rule cha 31101 | 5 | – |
 | 100101 / 100111 | 10 lần trong 60 giây, cùng IP nguồn (nhánh direct / cf) | 10 | T1110.001 |
-| 100105 | 200 trên `/login` sau 100101 hoặc 100111, cùng IP (E1) | 13 | T1110 |
+| 100102 / 100112 | Một request `/login` trả 200 (nhánh direct / cf); rule cha 31100 và 31108; chỉ dùng làm điều kiện cho 100105 | 0 | – |
+| 100105 | 200 trên `/login` trong 600 giây sau 100101 hoặc 100111, cùng IP (E1); cửa sổ bằng timeout của Active Response | 13 | T1110 |
 | 100120 | Sự kiện `login_failed` từ `auth.json` | 3 | – |
-| 100121 | Cùng username, nhiều IP khác nhau trong cửa sổ thời gian (E2) | 10 | T1110.003 |
+| 100121 | 6 sự kiện 100120 trong 300 giây, cùng username (`same_user`), IP khác với sự kiện hiện tại (`different_srcip`) (E2) | 10 | T1110.003 |
 
-- **Kiểm tra tự động:** `wazuh/tests/` chứa các dòng log mẫu và một script đưa chúng qua `wazuh-logtest`. Script xác nhận từng dòng khớp đúng rule ID mong đợi.
+- **Giới hạn của 100121:** Wazuh không có phép đếm số IP phân biệt. `different_srcip` chỉ yêu cầu mỗi sự kiện trước đó có IP khác với sự kiện hiện tại, nên hai IP là đủ để kích hoạt rule (ví dụ 5 lần từ IP A và 1 lần từ IP B).
+- **Kiểm tra tự động:** `wazuh/tests/test_rules.py` chứa các dòng log mẫu và đưa chúng qua socket `wazuh-logtest` của manager, kèm `location` của từng file log. Mỗi tình huống chạy trong một session riêng; script xác nhận từng sự kiện khớp đúng rule ID mong đợi. Không dùng lệnh `wazuh-logtest` tương tác, vì lệnh này gán location là `stdin`, nên các rule có `<location>` không khớp.
 - **Ngưỡng:** mỗi lần thay ngưỡng để thực nghiệm phải ứng với một commit riêng. Hash của commit đó được ghi vào kết quả lần chạy.
 - **Ghi chú:** `docs/notes/03-rules.md`, phục vụ mục 2.4 và 3.2.2.
 
@@ -193,7 +195,7 @@ Trong `wazuh/rules/local_rules.xml`, ID từ 100100:
 - **E1, E2:** đã làm ở giai đoạn 3. Giai đoạn này kiểm thử chúng bằng lưu lượng thật.
 - **E3:** bật `limit_req` cho `/login` (trả 429) dưới dạng một cấu hình riêng. Chạy lại S1 để so sánh chặn tại proxy với chặn qua SIEM. Cần ghi nhận rằng 429 làm giảm số dòng 401 mà rule đếm được.
 - **E4:** viết integration `custom-telegram` gửi cảnh báo từ level 10.
-- **E5:** gắn thẻ `<mitre>` vào rule, kiểm tra trên mô-đun MITRE ATT&CK của dashboard.
+- **E5:** thẻ `<mitre>` đã được gắn vào rule ở giai đoạn 3; giai đoạn này kiểm tra trên mô-đun MITRE ATT&CK của dashboard.
 - **Ghi chú:** `docs/notes/06-mo-rong.md`, phục vụ mục 1.4, 2.4.4 và 3.4.
 
 ### Giai đoạn 7. Thực nghiệm và thu số liệu
