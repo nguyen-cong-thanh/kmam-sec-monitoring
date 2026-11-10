@@ -9,7 +9,7 @@ Tài liệu này chi tiết hóa phần triển khai của [plan.md](plan.md): t
 | Máy client | Máy Kali của nhóm: làm máy trạm và máy tấn công; LAN 192.168.1.183 |
 | Máy server | Ubuntu 26.04.1 LTS, 4 CPU, 14 GiB RAM, 150 GB đĩa trống; LAN 192.168.1.142, nằm sau NAT của mạng gia đình; chạy Nginx, ứng dụng đăng nhập, Wazuh manager và Wazuh agent |
 | Đường quản trị | SSH qua Tailscale, tách khỏi địa chỉ LAN dùng để tấn công |
-| Ràng buộc | Máy chủ đang chạy container của các dự án khác (các port 1883, 3080, 8080, 8883, 32768); được phép dừng các container này khi cần tài nguyên hoặc port. Port 80 và 443 còn trống; ufw đang bật |
+| Ràng buộc | Máy chủ đang chạy container của các dự án khác (các port 1883, 3080, 8080, 8883, 32768); được phép dừng các container này khi cần tài nguyên hoặc port. Port 80 và 443 còn trống; ufw ở trạng thái inactive (kiểm tra ngày 2026-11-10) |
 | Đồng bộ mã | Hai máy dùng chung repo git; server cập nhật bằng `git pull` |
 | Reverse proxy | Nginx |
 | Cloudflare | Zone `nguyencongthanh.io.vn`; lab chỉ dùng subdomain `monitor-lab.nguyencongthanh.io.vn`, vì zone còn phục vụ các dịch vụ khác |

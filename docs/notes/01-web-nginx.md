@@ -32,9 +32,44 @@ Dựng ứng dụng đăng nhập trả 401/200, đặt sau Nginx với hai nhá
 
 ## Kết quả kiểm tra
 - Cục bộ trên Kali (2026-11-10): `go vet` và `go test ./...` đạt; `docker compose config -q` đạt; `nginx -t` với `nginx:1.30.6-alpine` báo `syntax is ok`; build image ứng dụng thành công.
-- Trên server: <chưa thực hiện>
+### Triển khai trên server (2026-11-10)
+- Repo tại `/home/thanhnc/developments/master-road/kmam-sec-monitoring`, commit `19c9acb`; `.env` tạo với quyền 600.
+- Thư mục log: `install -d -o 65532 -g 65532 /var/log/kmam/app`, `install -d /var/log/kmam/nginx`, `/var/log/kmam` quyền 755.
+- `docker compose -f infra/docker-compose.yml up -d --build`: `app` và `nginx` chạy; port `0.0.0.0:80` và `127.0.0.1:8081`; mạng `kmam_kmam` là `172.31.0.0/24`, gateway `172.31.0.1`.
+- `ufw status`: `inactive`.
+
+### Kiểm tra (2026-11-10)
+Tại thời điểm kiểm tra, Kali không ở trong LAN của server (Kali có địa chỉ `172.20.29.177`), hai máy chỉ kết nối qua Tailscale. Nhánh direct vì vậy được kiểm tra tạm qua IP Tailscale của server (`100.109.212.65`), cùng listener port 80. Kiểm tra từ LAN được để lại (mục Việc còn lại).
+
+| Kiểm tra | Kết quả |
+|---|---|
+| direct, mật khẩu sai / đúng | 401 / 200 |
+| direct, gửi kèm `CF-Connecting-IP`, `X-Real-IP`, `X-Forwarded-For` giả `198.51.100.9` | 401, log ghi `100.86.126.91` (IP thật) |
+| direct, `GET /login` | 405 |
+| port 8081 từ máy khác | không kết nối được |
+| cf qua `127.0.0.1:8081` với `CF-Connecting-IP: 203.0.113.50`, sai / đúng | 401 / 200, log ghi `203.0.113.50` |
+| cf qua `127.0.0.1:8081` không có header | log ghi `172.31.0.1`, xác nhận địa chỉ trong `set_real_ip_from` |
+| cf qua `https://monitor-lab.nguyencongthanh.io.vn`, sai / đúng | 401 / 200, log ghi `42.118.107.36` (IP công khai của Kali, đối chiếu với `cloudflare.com/cdn-cgi/trace`) |
+| cf qua Cloudflare, client tự gửi `CF-Connecting-IP` giả | 403 do Cloudflare trả, request không tới Nginx |
+| phân giải `monitor-lab.nguyencongthanh.io.vn` | `104.21.58.79`, `172.67.157.248` (IP của Cloudflare); header `server: cloudflare` |
+
+Trích log:
+```
+access-direct.log: 100.86.126.91 - - [10/Nov/2026:01:54:10 +0000] "POST /login HTTP/1.1" 401 20 "-" "curl/8.22.0"
+access-cf.log:     42.118.107.36 - - [10/Nov/2026:02:04:44 +0000] "POST /login HTTP/1.1" 401 20 "-" "curl/8.22.0"
+auth.json:         {"time":"2026-11-10T02:04:44.984069337Z","level":"INFO","msg":"login_failed","user":"admin","srcip":"42.118.107.36"}
+```
+
+Ảnh chụp (output thật của lệnh trên Kali, hiển thị lại dạng terminal bằng Chrome headless; mật khẩu trong lệnh `curl` được thay bằng `<redacted>`):
+- `images/01-log-direct.png`: 401/200 và dòng log nhánh direct;
+- `images/01-log-cf.png`: 401/200 và dòng log nhánh cf;
+- `images/01-cf-proxied.png`: bằng chứng bản ghi đi qua proxy Cloudflare (thay cho ảnh dashboard DNS, vì phiên làm việc không truy cập được dashboard Cloudflare).
+
+## Việc còn lại
+- [ ] Khi Kali ở trong LAN của server: từ `192.168.1.183` gửi request sai/đúng tới `http://192.168.1.142/login`, xác nhận 401/200 và `access-direct.log`, `auth.json` ghi `192.168.1.183`. Chụp lại `images/01-log-direct.png` từ LAN.
 
 ## Sự cố và phương án bị loại
+- Hiện tượng: sau khi tạo thư mục log, `ls /var/log/kmam/*` báo lỗi quyền. / Nguyên nhân: lệnh chạy với `umask 077` (đặt để tạo `.env`), nên `install -d` tạo thư mục cha `/var/log/kmam` với quyền 700. / Cách xử lý: `chmod 755 /var/log/kmam`.
 - Phương án ban đầu chạy `cloudflared` là một container trong cùng file compose, với `set_real_ip_from 172.31.0.0/24` và port 8081 không publish. Phương án bị loại vì `cloudflared` của lab do người thực hiện vận hành riêng trên host (2026-11-10). Thay bằng publish `127.0.0.1:8081` và chỉ tin gateway `172.31.0.1`.
 
 ## Ghi chú cho báo cáo
