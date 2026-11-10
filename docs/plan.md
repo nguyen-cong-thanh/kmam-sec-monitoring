@@ -245,7 +245,7 @@ Dự án gồm hai repo tách biệt. Repo phòng thủ (repo hiện tại):
 
 ```
 infra/               # docker-compose, cấu hình nginx, ứng dụng đăng nhập, Wazuh manager
-wazuh/               # local_decoder.xml, local_rules.xml, đoạn ossec.conf, integration
+wazuh/               # local_decoder.xml, local_rules.xml, agent.conf, integration
 active-response/     # script Cloudflare
 experiments/         # metrics.py và số liệu thô của thực nghiệm
 docs/                # kế hoạch, nhật ký triển khai (docs/notes/), báo cáo

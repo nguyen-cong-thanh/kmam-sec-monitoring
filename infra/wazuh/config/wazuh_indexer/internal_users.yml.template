@@ -1,0 +1,21 @@
+---
+# Indexer internal users. set-passwords.sh renders internal_users.yml from
+# this template with bcrypt hashes of the passwords in .env. The upstream
+# demo users (kibanaro, logstash, readall, snapshotrestore) are removed
+# because their passwords are public.
+
+_meta:
+  type: "internalusers"
+  config_version: 2
+
+admin:
+  hash: "__ADMIN_HASH__"
+  reserved: true
+  backend_roles:
+  - "admin"
+  description: "Admin user"
+
+kibanaserver:
+  hash: "__KIBANASERVER_HASH__"
+  reserved: true
+  description: "Dashboard server user"

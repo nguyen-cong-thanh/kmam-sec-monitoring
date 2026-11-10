@@ -45,7 +45,7 @@ Các lựa chọn thiết kế:
    Mỗi rule tương quan gắn với một file log qua thẻ `<location>`. Nhờ đó Active Response của nhánh nào chỉ chạy cho nhánh đó, và số liệu hai nhánh không lẫn vào nhau.
 2. **Wazuh agent cài trực tiếp trên host, không chạy trong container.** `firewall-drop` phải thay đổi iptables của host. Nếu agent chạy trong container, lệnh chặn chỉ có tác dụng trong network namespace của container đó.
 3. **Ứng dụng đăng nhập tự viết bằng Go.** Ứng dụng chỉ dùng thư viện chuẩn (`net/http`, `log/slog`) và được build thành một binary trong image Docker nhiều giai đoạn, nên máy chủ không cần cài Go. Ứng dụng trả về 401 khi đăng nhập sai và 200 khi đúng. Ngoài ra, ứng dụng ghi sự kiện đăng nhập dạng JSON (`msg` là `login_failed` hoặc `login_success`, `user`, `srcip`) ra `auth.json`, phục vụ phát hiện tấn công phân tán theo tài khoản (E2), vì access log của Nginx không chứa username.
-4. **Bí mật không đưa vào repo.** API token Cloudflare và mật khẩu Wazuh để trong `.env` (khai báo trong `.gitignore`). Repo chỉ chứa `.env.example`.
+4. **Bí mật không đưa vào repo.** Tài khoản ứng dụng để trong `.env` ở gốc repo; mật khẩu Wazuh để trong `infra/wazuh/.env`; API token Cloudflare để trong `/var/ossec/etc/` trên host (giai đoạn 5). Các file `.env` được khai báo trong `.gitignore`; repo chỉ chứa `.env.example`. Chứng chỉ và `internal_users.yml` (chứa hash mật khẩu) được sinh trên server, không commit.
 5. **Tách phòng thủ và tấn công thành hai repo riêng.** Công cụ sinh tải tấn công đặt ở một repo độc lập, không nằm trong repo phòng thủ. Nhờ đó, phiên làm việc xây dựng phần phòng thủ không nạp nội dung tấn công và giữ nguyên năng lực mô hình. Hai repo trao đổi dữ liệu một chiều: repo tấn công sinh ra `attack.csv`, người thực hiện chép vào `experiments/results/` của repo phòng thủ để phân tích. Việc phân tích (`metrics.py`) thuộc repo phòng thủ, vì chỉ đọc số liệu, không sinh tải.
 
 ## 3. Cấu trúc hai repo
@@ -57,12 +57,13 @@ infra/
   docker-compose.yml        # nginx + app
   nginx/nginx.conf          # log_format, vhost direct và cf, real_ip, limit_req (E3)
   app/                      # ứng dụng đăng nhập Go: main.go, main_test.go, Dockerfile
-  wazuh/                    # cấu hình chạy Wazuh manager single-node
+  wazuh/                    # Wazuh single-node (dựa trên wazuh-docker v4.14.10): docker-compose.yml,
+                            # config/wazuh_cluster/wazuh_manager.conf (ossec.conf của manager:
+                            # command, active-response, white_list), set-passwords.sh
 wazuh/
   rules/local_rules.xml
   decoders/local_decoder.xml   # chỉ tạo khi decoder có sẵn không đáp ứng
-  ossec-manager.conf.snippet   # command, active-response, white_list
-  ossec-agent.conf.snippet     # localfile
+  agent.conf                   # localfile cho agent, manager đẩy xuống nhóm default
   integrations/                # custom-telegram (E4)
   tests/                       # log mẫu và script chạy wazuh-logtest
 active-response/
@@ -118,15 +119,20 @@ Mỗi giai đoạn chỉ kết thúc khi phần kiểm tra đạt và file ghi c
 
 ### Giai đoạn 2. Wazuh manager và agent
 
-- **Manager:** dựng Wazuh manager bằng bản Docker single-node chính thức, ghim một phiên bản cụ thể. Mount `wazuh/rules` và `wazuh/decoders` vào container.
-- **Agent:** cài agent trên host và đăng ký với manager.
-- **Nguồn log của agent:**
-  - `localfile` cho hai access log;
+- **Manager:** dựng bản Docker single-node chính thức (manager, indexer, dashboard), ghim phiên bản 4.14.10, cấu hình tại `infra/wazuh/`. Khác với bản gốc:
+  - port 1514, 1515 chỉ publish trên `127.0.0.1`, vì agent duy nhất chạy trên chính host; không publish 9200, 55000, 514/udp;
+  - dashboard publish trên IP Tailscale của server (`100.109.212.65:443`), tức là chỉ truy cập qua đường quản trị;
+  - đổi toàn bộ mật khẩu mặc định: `set-passwords.sh` sinh `internal_users.yml` từ template và bỏ các user demo; mật khẩu API truyền qua biến môi trường.
+  - Việc mount `wazuh/rules` và `wazuh/decoders` chuyển sang giai đoạn 3, khi có rule đầu tiên.
+- **Agent:** cài gói `wazuh-agent` 4.14.10 trên host (giữ phiên bản bằng `apt-mark hold`), đăng ký với manager qua `127.0.0.1`.
+- **Nguồn log của agent:** khai báo trong `wazuh/agent.conf` (cấu hình tập trung), manager đẩy xuống agent thuộc nhóm `default`:
+  - hai access log với `log_format` là `syslog`;
   - `auth.json` với `log_format` là `json`.
 - **Kiểm tra:**
-  - agent ở trạng thái active;
-  - sự kiện từ cả ba file log xuất hiện trên dashboard;
-  - đo RAM/CPU của manager bằng `docker stats` và lưu lại.
+  - agent ở trạng thái active và đã nhận `agent.conf`;
+  - request 401 trên hai access log sinh cảnh báo của rule web có sẵn và xuất hiện trên dashboard;
+  - dòng `auth.json` được agent đọc và manager giải mã bằng decoder `json` (kiểm tra bằng `wazuh-logtest`). Chưa có rule nào cho sự kiện này nên nó chỉ xuất hiện trên dashboard từ giai đoạn 3 (rule 100120);
+  - đo RAM/CPU của các container Wazuh bằng `docker stats` và lưu lại.
 - **Ghi chú:** `docs/notes/02-wazuh.md`, phục vụ mục 1.2.2, 3.1.2 và 3.2.2.
 
 ### Giai đoạn 3. Decoder và rule phát hiện
